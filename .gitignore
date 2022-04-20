@@ -1,0 +1,9 @@
+venv
+__*
+dataset
+saves
+*.jpg
+*.png
+*.tar
+*.csv
+*.tif
