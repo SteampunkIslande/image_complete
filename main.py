@@ -4,8 +4,6 @@ from torch.utils.data import Dataset, DataLoader
 import torch
 import torch.nn as nn
 
-import torch.optim as optim
-
 from unet import UNet
 
 from random import seed, randint
@@ -105,7 +103,7 @@ def save_checkpoint(
     torch.save(
         {
             "epoch": epoch,
-            "model_state_dict": model.state_dict(),
+            "model_state_dict": model.to(device).state_dict(),
             "optimizer_name": optimizer.__class__.__name__,
             "optimizer_args": optimizer_args,
             "optimizer_state_dict": optimizer.state_dict(),
@@ -140,7 +138,8 @@ def init_training_from_scratch(args, device: torch.device, net: torch.nn.Module)
 
 def init_training_from_checkpoint(args, device: torch.device, net: torch.nn.Module):
 
-    checkpoint_data = load_from_checkpoint(args.checkpoint)
+    with open(args.checkpoint_path, "rb") as f:
+        checkpoint_data = torch.load(f, map_location=device)
 
     loss_name = checkpoint_data["loss_name"]
     criterion: nn.Module = loss_functions[loss_name]()
@@ -294,6 +293,29 @@ def eval(args):
     return 0
 
 
+def parse_optimizer_args(arg: str):
+    """Parse optimizer args as given by the user.
+    Three possibilities:
+        - Give the path to a json file with optimizer arguments
+        - Give a json-like string
+        - Give a coma-separated, 'key=value' kind of dictionary
+    Args:
+        arg (str): What the user inputted
+    """
+    optimizer_args = {}
+    if os.path.isfile(arg):
+        with open(arg) as f:
+            optimizer_args = json.load(f)
+    else:
+        try:
+            optimizer_args = json.loads(arg.replace("'", '"'))
+        except ValueError:
+            for keyval in arg.split(","):
+                key, val = keyval.split("=")
+                optimizer_args[key] = val
+    return optimizer_args
+
+
 if __name__ == "__main__":
     from argparse import ArgumentParser
 
@@ -318,11 +340,15 @@ if __name__ == "__main__":
     train_parser.add_argument(
         "--optimizer-options",
         help="Optimizer parameters such as learning rate, momentum, etc",
-        type=json.loads,
+        type=parse_optimizer_args,
         dest="optimizer_args",
         default=None,
     )
-    train_parser.add_argument("--save-path", default="saves")
+    train_parser.add_argument(
+        "--save-path",
+        default="saves",
+        help="Path to an existing folder to save progress to",
+    )
     train_parser.add_argument(
         "--loss-function", default="L1Loss", choices=loss_functions.keys()
     )
@@ -330,7 +356,10 @@ if __name__ == "__main__":
 
     train_parser.set_defaults(func=train)
 
-    eval_parser = subparsers.add_parser("eval")
+    eval_parser = subparsers.add_parser(
+        "eval",
+        help="Generate image using serialized model (either a checkpoint or just a final point)",
+    )
     eval_parser.add_argument(
         "image", help="Path to an image you'd like to autocomplete"
     )
